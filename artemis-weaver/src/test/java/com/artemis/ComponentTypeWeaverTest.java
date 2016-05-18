@@ -2,7 +2,6 @@ package com.artemis;
 
 import static com.artemis.Transformer.transform;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.InputStream;
@@ -31,8 +30,7 @@ public class ComponentTypeWeaverTest {
 		ClassMetadata meta = Weaver.scan(transform(ComponentToWeave.class));
 		assertEquals(WeaverType.NONE, meta.annotation);
 		assertTrue(meta.foundReset); 
-		assertFalse(meta.foundEntityFor);
-		assertEquals("com/artemis/PooledComponent", meta.superClass); 
+		assertEquals("com/artemis/PooledComponent", meta.superClass);
 	}
 	
 	@Test
@@ -43,14 +41,5 @@ public class ComponentTypeWeaverTest {
 		assertEquals(WeaverType.NONE, meta.annotation);
 		assertTrue(meta.foundReset); 
 		assertEquals("com/artemis/PooledComponent", meta.superClass); 
-	}
-	
-	private static ClassMetadata scan(Class<?> klazz) {
-		InputStream classStream = klazz.getResourceAsStream("/" + klazz.getName().replace('.', '/') + ".class");
-		ClassReader cr = Weaver.classReaderFor(classStream);
-		ClassMetadata meta = Weaver.scan(cr);
-		meta.type = Type.getObjectType(cr.getClassName());
-		
-		return meta;
 	}
 }

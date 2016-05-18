@@ -2,6 +2,7 @@ package com.artemis;
 
 import com.artemis.meta.ClassMetadata;
 import com.artemis.meta.ClassMetadata.WeaverType;
+import com.artemis.meta.FieldDescriptor;
 import org.objectweb.asm.Type;
 
 import java.util.ArrayList;
@@ -13,12 +14,12 @@ public class WeaverLog {
 	public static final String LINE = horizontalLine(); 
 	
 	public int timeComponents;
-	public int timeComponentSystems;
 	public int timeSystems;
+	public int timeComponentsEntityLinks;
 	public List<ClassMetadata> components = new ArrayList<ClassMetadata>();
-	public List<ClassMetadata> componentSystems = new ArrayList<ClassMetadata>();
 	public List<ClassMetadata> systems = new ArrayList<ClassMetadata>();
-	
+	public List<ClassMetadata> componentsEntityLinks;
+
 	private static String format(String key, Object value, char delim) {
 		int length = key.length() + value.toString().length() + 2; // margin
 		length = Math.max(length, 3);
@@ -45,11 +46,11 @@ public class WeaverLog {
 			sb.append(LINE);
 		}
 		
-		if (timeComponentSystems > 0) {
+		if (timeComponentsEntityLinks > 0) {
 			sb.append("").append('\n');
-			sb.append(format("COMPONENT ACCESS REWRITTEN", timeComponentSystems + "ms", ' ')).append('\n');
+			sb.append(format("ENTITY LINK MUTATORS", timeComponentsEntityLinks + "ms", ' ')).append('\n');
 			sb.append(LINE);
-			for (String detail : getRewrittenAccessSummary(componentSystems).split("\n"))
+			for (String detail : getEntityLinksSummary(componentsEntityLinks).split("\n"))
 				sb.append(detail).append('\n');
 			sb.append(LINE);
 		}
@@ -58,7 +59,7 @@ public class WeaverLog {
 		if (timeSystems > 0) {
 			sb.append("").append('\n');
 			sb.append(format("OPTIMIZED ENTITY SYSTEMS", timeSystems + "ms", ' ')).append('\n');
-			sb.append(LINE).append('\n');
+			sb.append(LINE);
 			for (String detail : getSystemSummary(systems).split("\n"))
 				sb.append(detail).append('\n');
 			sb.append(LINE);
@@ -107,7 +108,7 @@ public class WeaverLog {
 	}
 
 	private static String getSystemSummary(List<ClassMetadata> processed) {
-		StringBuilder sb= new StringBuilder();
+		StringBuilder sb = new StringBuilder();
 		
 		for (ClassMetadata meta : processed) {
 			String klazz = shortenClass(meta.type);
@@ -117,12 +118,23 @@ public class WeaverLog {
 		return sb.toString();
 	}
 
-	private static String getRewrittenAccessSummary(List<ClassMetadata> processed) {
-		StringBuilder sb= new StringBuilder();
-		
+	private static String getEntityLinksSummary(List<ClassMetadata> processed) {
+		StringBuilder sb = new StringBuilder();
+
+		StringBuilder fields = new StringBuilder();
 		for (ClassMetadata meta : processed) {
+			fields.setLength(0);
+
+			String delim = "";
+			for (FieldDescriptor fd : meta.fields()) {
+				if (fd.entityLinkMutator != null) {
+					fields.append(delim).append(fd.name);
+					delim = ", ";
+				}
+			}
+
 			String klazz = shortenClass(meta.type);
-			sb.append(format(klazz, "SUCCESS")).append("\n");
+			sb.append(format(klazz, fields)).append("\n");
 		}
 		
 		return sb.toString();

@@ -4,13 +4,13 @@
 	<parent>
 		<groupId>net.onedaybeard.artemis</groupId>
 		<artifactId>artemis-parent</artifactId>
-		<version>2.0.0-SNAPSHOT</version>
+		<version>2.0.0-RC2-SNAPSHOT</version>
 	</parent>
 	<artifactId>artemis-odb-serializer-json-libgdx</artifactId>
 	<packaging>jar</packaging>
-	<name>artemis-odb-libgdx-serializer</name>	
+	<name>artemis-odb-libgdx-serializer</name>
 	<description>Json serializer for libgdx.</description>
-	
+
 	<url>https://github.com/junkdog/artemis-odb</url>
 
 	<dependencies>
@@ -51,5 +51,12 @@
 			</plugin>
 		</plugins>
 	</build>
-	
+
+	<distributionManagement>
+		<site>
+			<id>junkdog.github.com</id>
+			<url>file:/home/junkdog/opt/dev/junkdog.github.io/sites/artemis-odb/artemis-serializer-json-libgdx</url>
+		</site>
+	</distributionManagement>
+
 </project>

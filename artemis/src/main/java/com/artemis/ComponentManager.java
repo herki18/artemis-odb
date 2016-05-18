@@ -26,19 +26,16 @@ public class ComponentManager extends BaseSystem {
 	static final int NO_COMPONENTS = 0;
 
 	/** Collects all Entites marked for deletion from this ComponentManager. */
-	final ComponentPool pooledComponents;
 	private Bag<ComponentMapper> mappers = new Bag(ComponentMapper.class);
 
 	private final ComponentIdentityResolver identityResolver = new ComponentIdentityResolver();
-	private final ShortBag entityToIdentity;
+	final ShortBag entityToIdentity;
 	protected final ComponentTypeFactory typeFactory;
 
-	private int highestSeenIdentity;
 	/**
 	 * Creates a new instance of {@link ComponentManager}.
 	 */
 	protected ComponentManager(int entityContainerSize) {
-		pooledComponents = new ComponentPool();
 		entityToIdentity = new ShortBag(entityContainerSize);
 		typeFactory = new ComponentTypeFactory(this, entityContainerSize);
 	}
@@ -77,19 +74,28 @@ public class ComponentManager extends BaseSystem {
 		}
 	}
 
+
 	/**
-	 * Removes all components from the entity associated in this manager.
+	 * Removes all components from deleted entities.
 	 *
-	 * @param entityId
-	 *			the entity to remove components from
+	 * @param pendingPurge
+	 *			the entities to remove components from
 	 */
-	private void removeComponents(int entityId) {
-		BitSet componentBits = componentBits(entityId);
-		for (int i = componentBits.nextSetBit(0); i >= 0; i = componentBits.nextSetBit(i+1)) {
-			mappers.get(i).internalRemove(entityId);
+	void clean(IntBag pendingPurge) {
+		int[] ids = pendingPurge.getData();
+		for (int i = 0, s = pendingPurge.size(); s > i; i++) {
+			removeComponents(ids[i]);
 		}
 	}
 
+	private void removeComponents(int entityId) {
+		Bag<ComponentMapper> mappers = componentMappers(entityId);
+		for (int i = 0, s = mappers.size(); s > i; i++) {
+			mappers.get(i).internalRemove(entityId);
+		}
+
+		setIdentity(entityId, 0);
+	}
 
 	/**
 	 * Get all components from all entities for a given type.
@@ -133,29 +139,25 @@ public class ComponentManager extends BaseSystem {
 	 * @return the {@code fillBag}, filled with the entities components
 	 */
 	public Bag<Component> getComponentsFor(int entityId, Bag<Component> fillBag) {
-		BitSet componentBits = componentBits(entityId);
-		for (int i = componentBits.nextSetBit(0); i >= 0; i = componentBits.nextSetBit(i+1)) {
+		Bag<ComponentMapper> mappers = componentMappers(entityId);
+
+		for (int i = 0, s = mappers.size(); s > i; i++) {
 			fillBag.add(mappers.get(i).get(entityId));
 		}
-		
-		return fillBag;
-	}
 
-	/**
-	 * Removes all components from entities marked for deletion.
-	 */
-	void clean(IntBag deletedIds) {
-		int[] ids = deletedIds.getData();
-		for(int i = 0, s = deletedIds.size(); s > i; i++) {
-			removeComponents(ids[i]);
-			entityToIdentity.set(ids[i], (short)0);
-		}
+		return fillBag;
 	}
 
 	/** Get component composition of entity. */
 	BitSet componentBits(int entityId) {
 		int identityIndex = entityToIdentity.get(entityId);
-		return identityResolver.composition.get(identityIndex);
+		return identityResolver.compositionBits.get(identityIndex);
+	}
+
+	/** Get component composition of entity. */
+	private Bag<ComponentMapper> componentMappers(int entityId) {
+		int identityIndex = entityToIdentity.get(entityId);
+		return identityResolver.compositionMappers.get(identityIndex);
 	}
 
 	/**
@@ -166,11 +168,12 @@ public class ComponentManager extends BaseSystem {
 	 */
 	int compositionIdentity(BitSet componentBits) {
 		int identity = identityResolver.getIdentity(componentBits);
-		if (identity > highestSeenIdentity) {
+		if (identity == -1) {
+			identity = identityResolver.allocateIdentity(componentBits, this);
 			world.getAspectSubscriptionManager()
 				.processComponentIdentity(identity, componentBits);
-			highestSeenIdentity = identity;
 		}
+
 		return identity;
 	}
 
@@ -193,8 +196,9 @@ public class ComponentManager extends BaseSystem {
 	 * @param es entity subscription to update.
 	 */
 	void synchronize(EntitySubscription es) {
-		for (int i = 1; highestSeenIdentity >= i; i++) {
-			BitSet componentBits = identityResolver.composition.get(i);
+		Bag<BitSet> compositionBits = identityResolver.compositionBits;
+		for (int i = 1, s = compositionBits.size(); s > i; i++) {
+			BitSet componentBits = compositionBits.get(i);
 			es.processComponentIdentity(i, componentBits);
 		}
 
@@ -213,7 +217,7 @@ public class ComponentManager extends BaseSystem {
 	 * @param compositionId composition id
 	 */
 	void setIdentity(int entityId, int compositionId) {
-		entityToIdentity.set(entityId, (short) compositionId);
+		entityToIdentity.unsafeSet(entityId, (short) compositionId);
 	}
 
 	/**
@@ -231,26 +235,43 @@ public class ComponentManager extends BaseSystem {
 		}
 	}
 
-
 	/** Tracks all unique component compositions. */
-	private static final class ComponentIdentityResolver {
-		private final Bag<BitSet> composition;
+	static final class ComponentIdentityResolver {
+		final Bag<BitSet> compositionBits;
+		final Bag<Bag<ComponentMapper>> compositionMappers;
 
 		ComponentIdentityResolver() {
-			composition = new Bag(BitSet.class);
-			composition.add(new BitSet());
+			compositionBits = new Bag(BitSet.class);
+			compositionBits.add(new BitSet());
+			compositionMappers = new Bag<Bag<ComponentMapper>>();
+			compositionMappers.add(new Bag(ComponentMapper.class));
 		}
 
 		/** Fetch unique identity for passed composition. */
 		int getIdentity(BitSet components) {
-			Object[] bitsets = composition.getData();
-			int size = composition.size();
+			Object[] bitsets = compositionBits.getData();
+			int size = compositionBits.size();
 			for (int i = NO_COMPONENTS; size > i; i++) { // want to start from 1 so that 0 can mean null
 				if (components.equals(bitsets[i]))
 					return i;
 			}
-			composition.add((BitSet)components.clone());
-			return size;
+
+			return -1;
+		}
+
+		int allocateIdentity(BitSet componentBits, ComponentManager cm) {
+			Bag<ComponentMapper> mappers =
+				new Bag<ComponentMapper>(ComponentMapper.class, componentBits.cardinality());
+
+			ComponentTypeFactory tf = cm.getTypeFactory();
+			for (int i = componentBits.nextSetBit(0); i >= 0; i = componentBits.nextSetBit(i + 1)) {
+				mappers.add(cm.getMapper(tf.getTypeFor(i).getType()));
+			}
+
+			compositionMappers.add(mappers);
+			compositionBits.add((BitSet)componentBits.clone());
+
+			return compositionBits.size() - 1;
 		}
 	}
 }

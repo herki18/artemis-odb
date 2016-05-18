@@ -24,10 +24,10 @@ public class WeaveCommand {
 	private boolean disablePooledWeaving = false;
 
 	@Parameter(
-		names = {"-P", "--disable-packed"},
-		description = "Disable weaving of pooled components",
+		names = {"-E", "--disable-entity-links"},
+		description = "Skip generating mutator classes used by the EntityLinkManager",
 		required = false)
-	private boolean disablePackedWeaving = false;
+	private boolean disableLinkMutatorGen = false;
 
 	@Parameter(
 		names = {"-e", "--disable-es-optimization"},
@@ -52,7 +52,7 @@ public class WeaveCommand {
 		long start = System.currentTimeMillis();
 		
 		Weaver.enablePooledWeaving(!disablePooledWeaving);
-		Weaver.enablePackedWeaving(!disablePackedWeaving);
+		Weaver.generateLinkMutators(!disableLinkMutatorGen);
 		Weaver.optimizeEntitySystems(!disableOptimizeEntitySystems);
 		Weaver weaver = new Weaver(classRoot);
 		WeaverLog processed = weaver.execute();
@@ -69,7 +69,7 @@ public class WeaveCommand {
 			if (POOLED == meta.annotation) pooled++;
 		}
 		
-		return String.format("Processed %d PackedComponents and %d PooledComponents in %dms.",
+		return String.format("Processed %d PooledComponents in %dms.",
 			packed, pooled, (System.currentTimeMillis() - start));
 	}
 }

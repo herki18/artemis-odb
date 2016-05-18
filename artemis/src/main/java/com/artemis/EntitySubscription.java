@@ -1,7 +1,9 @@
 package com.artemis;
 
+import com.artemis.annotations.DelayedComponentRemoval;
 import com.artemis.utils.Bag;
 import com.artemis.utils.IntBag;
+import com.artemis.utils.ShortBag;
 
 import java.util.BitSet;
 
@@ -14,39 +16,26 @@ import static com.artemis.utils.ConverterUtil.toIntBag;
  * are informed when entities are added or removed.
  */
 public class EntitySubscription {
-	final Aspect aspect;
-	private final Aspect.Builder aspectReflection;
-	private final BitSet aspectCache;
+	final SubscriptionExtra extra;
 
 	private final IntBag entities;
 	private final BitSet activeEntityIds;
-	private final ComponentManager cm;
-
-	private final Bag<SubscriptionListener> listeners;
+	private final ShortBag entityToIdentity;
 
 	private final BitSet insertedIds;
 	private final BitSet removedIds;
 
-	private final IntBag inserted;
-	private final IntBag removed;
-	private boolean dirty;
+	final BitSet aspectCache = new BitSet();
 
 	EntitySubscription(World world, Aspect.Builder builder) {
-		aspect = builder.build(world);
-		aspectReflection = builder;
-		aspectCache = new BitSet();
-		cm = world.getComponentManager();
+		extra = new SubscriptionExtra(builder.build(world), builder);
+		entityToIdentity = world.getComponentManager().entityToIdentity;
 
 		activeEntityIds = new BitSet();
 		entities = new IntBag();
 
-		listeners = new Bag(SubscriptionListener.class);
-
 		insertedIds = new BitSet();
 		removedIds = new BitSet();
-
-		inserted = new IntBag();
-		removed = new IntBag();
 	}
 
 	/**
@@ -59,10 +48,9 @@ public class EntitySubscription {
 	 * @return View of all active entities.
 	 */
 	public IntBag getEntities() {
-		if (dirty) {
+		if (entities.isEmpty() && !activeEntityIds.isEmpty())
 			rebuildCompressedActives();
-			dirty = false;
-		}
+
 		return entities;
 	}
 
@@ -82,14 +70,14 @@ public class EntitySubscription {
 	 * @return aspect used for matching entities to subscription.
 	 */
 	public Aspect getAspect() {
-		return aspect;
+		return extra.aspect;
 	}
 
 	/**
 	 * @return aspect builder used for matching entities to subscription.
 	 */
 	public Aspect.Builder getAspectBuilder() {
-		return aspectReflection;
+		return extra.aspectReflection;
 	}
 
 	/**
@@ -97,7 +85,7 @@ public class EntitySubscription {
 	 * subscription's aspect is interested in it.
 	 */
 	void processComponentIdentity(int id, BitSet componentBits) {
-		aspectCache.set(id, aspect.isInterested(componentBits));
+		aspectCache.set(id, extra.aspect.isInterested(componentBits));
 	}
 
 	void rebuildCompressedActives() {
@@ -112,7 +100,7 @@ public class EntitySubscription {
 	}
 
 	final void check(int id) {
-		boolean interested = aspectCache.get(cm.getIdentity(id));
+		boolean interested = aspectCache.get(entityToIdentity.get(id));
 		boolean contains = activeEntityIds.get(id);
 
 		if (interested && !contains) {
@@ -136,57 +124,47 @@ public class EntitySubscription {
 		deleted(deleted);
 		changed(changed);
 
-		dirty |= informEntityChanges();
+		informEntityChanges();
 	}
 
 	void processAll(IntBag changed, IntBag deleted) {
 		deletedAll(deleted);
 		changed(changed);
 
-		dirty |= informEntityChanges();
+		informEntityChanges();
 	}
 
-	boolean informEntityChanges() {
+	void informEntityChanges() {
 		if (insertedIds.isEmpty() && removedIds.isEmpty())
-			return false;
+			return;
 
-		transferBitsToInts();
-		for (int i = 0, s = listeners.size(); s > i; i++) {
-			if (removed.size() > 0)
-				listeners.get(i).removed(removed);
-
-			if (inserted.size() > 0)
-				listeners.get(i).inserted(inserted);
-		}
-
-		inserted.setSize(0);
-		removed.setSize(0);
-
-		return true;
+		transferBitsToInts(extra.inserted, extra.removed);
+		extra.informEntityChanges();
+		entities.setSize(0);
 	}
 
-	private void transferBitsToInts() {
+	private void transferBitsToInts(IntBag inserted, IntBag removed) {
 		toIntBag(insertedIds, inserted);
 		toIntBag(removedIds, removed);
 		insertedIds.clear();
 		removedIds.clear();
 	}
 
-	private final void changed(IntBag entities) {
+	private void changed(IntBag entities) {
 		int[] ids = entities.getData();
 		for (int i = 0, s = entities.size(); s > i; i++) {
 			check(ids[i]);
 		}
 	}
 
-	private final void deleted(IntBag entities) {
+	private void deleted(IntBag entities) {
 		int[] ids = entities.getData();
 		for (int i = 0, s = entities.size(); s > i; i++) {
 			deleted(ids[i]);
 		}
 	}
 
-	private final void deletedAll(IntBag entities) {
+	private void deletedAll(IntBag entities) {
 		int[] ids = entities.getData();
 		for (int i = 0, s = entities.size(); s > i; i++) {
 			int id = ids[i];
@@ -195,7 +173,7 @@ public class EntitySubscription {
 		}
 	}
 
-	private final void deleted(int entityId) {
+	private void deleted(int entityId) {
 		if(activeEntityIds.get(entityId))
 			remove(entityId);
 	}
@@ -206,7 +184,12 @@ public class EntitySubscription {
 	 * @param listener listener to add.
 	 */
 	public void addSubscriptionListener(SubscriptionListener listener) {
-		listeners.add(listener);
+		extra.listeners.add(listener);
+	}
+
+	@Override
+	public String toString() {
+		return "EntitySubscription[" + getAspectBuilder() + "]";
 	}
 
 	/**
@@ -221,9 +204,43 @@ public class EntitySubscription {
 		void inserted(IntBag entities);
 
 		/**
-		 * Called after entities have been removed from an EntitySubscription.
+		 * <p>Called after entities have been removed from an EntitySubscription.
+		 * Explicitly removed components are only retrievable at this point
+		 * if annotated with {@link DelayedComponentRemoval}.</p>
+		 *
+		 * <p>Deleted entities retain all their components until - all listeners
+		 * have been informed.</p>
 		 */
 		void removed(IntBag entities);
 	}
 
+	public static class SubscriptionExtra {
+		final IntBag inserted = new IntBag();
+		final IntBag removed = new IntBag();
+		final Aspect aspect;
+		final Aspect.Builder aspectReflection;
+		final Bag<SubscriptionListener> listeners = new Bag<SubscriptionListener>();
+
+		public SubscriptionExtra(Aspect aspect, Aspect.Builder aspectReflection) {
+			this.aspect = aspect;
+			this.aspectReflection = aspectReflection;
+		}
+
+		void informEntityChanges() {
+			informListeners();
+
+			removed.setSize(0);
+			inserted.setSize(0);
+		}
+
+		private void informListeners() {
+			for (int i = 0, s = listeners.size(); s > i; i++) {
+				if (removed.size() > 0)
+					listeners.get(i).removed(removed);
+
+				if (inserted.size() > 0)
+					listeners.get(i).inserted(inserted);
+			}
+		}
+	}
 }

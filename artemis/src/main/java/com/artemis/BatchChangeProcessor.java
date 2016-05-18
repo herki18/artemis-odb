@@ -11,7 +11,13 @@ final class BatchChangeProcessor {
 	private final AspectSubscriptionManager asm;
 
 	final BitSet changed = new BitSet();
+	final WildBag<ComponentRemover> purgatories = new WildBag<ComponentRemover>(ComponentRemover.class);
+
+	// marked for deletion, will be removed for entity subscriptions asap
 	private final BitSet deleted = new BitSet();
+
+	// collected deleted entities during this {@link World#process()} round;
+	// cleaned at end of round.
 	private final BitSet pendingPurge = new BitSet();
 	private final IntBag toPurge = new IntBag();
 
@@ -64,9 +70,17 @@ final class BatchChangeProcessor {
 	void update() {
 		while(!changed.isEmpty() || !deleted.isEmpty()) {
 			asm.process(changed, deleted);
+			purgeComponents();
 		}
 
 		clean();
+	}
+
+	void purgeComponents() {
+		for (int i = 0, s = purgatories.size(); s > i; i++)
+			purgatories.get(i).purge();
+
+		purgatories.setSize(0);
 	}
 
 	IntBag getPendingPurge() {
@@ -79,12 +93,12 @@ final class BatchChangeProcessor {
 		if (edited.isEmpty())
 			return false;
 
-		edited.setSize(0);
 		Object[] data = edited.getData();
 		for (int i = 0, s = edited.size(); s > i; i++) {
 			EntityEdit edit = (EntityEdit)data[i];
 			pool.add(edit);
 		}
+		edited.setSize(0);
 
 		return true;
 	}

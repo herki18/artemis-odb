@@ -1,19 +1,40 @@
 ## Change Log (we do our best to adhere to [semantic versioning](http://semver.org/))
 
-#### Version: 2.0.0-SNAPSHOT
+#### Version: 2.0.0-RC2-SNAPSHOT
+
+#### Version: 2.0.0-RC1 - 2016-05-09
 - **BREAKING CHANGES**
   - Methods added to interface `Injector#getRegistered(Class|String)`
+  - `ComponentMapper#getSafe` deprecated, `#get` is sufficient for all use-cases now.
+    due to mappers always growing their backing arrays to accomodate the highest entity id.
+  - Calling `BaseSystem#process` will now run the system, even if `setEnabled(false)` has been called.
+    `SystemInvocationStrategy` now tracks which systems are enabled/disabled.
+    (you may want to update your custom `SystemInvocationStrategy` implementations).
 
+- Optional manager: **[EntityLinkManager][ELM]**, discovery and maintenance of relationships between entities.
+  - Automatically tracks component fields: `@EntityId int`, `Entity`, `@EntityId IntBag`, `Bag<Entity>`
+    (shares behavior with serialization).
+  - `LinkListener` for listening in on when links between entities are established, changed or disconnected.
+  - Tune behavior with `@LinkPolicy`, applied on component fields referencing entities.
+  - Optimized link accessors via maven/gradle plugin - reflection-based fallback during development.
+- [`@DelayedComponentRemoval`][DCR] guarantees that component is available in `SubscriptionListener#removed(IntBag)`.
 - `World#getRegistered`, retrieves injectable objects programmatically.
 - Re-worked `EntityEdit` logic, less code and more performance.
 - ComponentType validates component when first encountered.
 - Removed `PackedComponent` and `@PackedWeaver`.
-- `Bag(Class<T>)` and `Bag(Class<T>, int capacity)` added.
+- added `AspectSubscriptionManager#getSubscriptions`
+- added `Bag(Class<T>)` and `Bag(Class<T>, int capacity)`
 - `IntBag#get` throws `ArrayIndexOutOfBoundsException` whenever `index` is greater than the reported size,
   regardless of the size of the underlying array.
-- Kryo serialization backend: [binary with kryo](https://github.com/junkdog/artemis-odb/wiki/Kryo-Serialization)
-  (thanks to @piotr-j).
+- All systems are first injected, after which all systems are initialized. Previously,
+  each system was injected/initialized at the same time.
+- **Serialization**
+  - new `artemis-odb-serializer` artifact, used by all serialization backends,
+  - Kryo serialization backend: [binary with kryo](https://github.com/junkdog/artemis-odb/wiki/Kryo-Serialization)
+    (thanks to @piotr-j).
 
+ [ELM]: https://github.com/junkdog/artemis-odb/wiki/EntityLinkManager
+ [DCR]: https://github.com/junkdog/artemis-odb/wiki/AspectSubscriptionManager#delayedcomponentremoval----keeping-components-around
 
 #### Version: 1.4.0 - 2016-03-09
 - **BREAKING CHANGES**

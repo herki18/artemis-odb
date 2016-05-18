@@ -2,12 +2,14 @@ package com.artemis;
 
 import com.artemis.annotations.SkipWire;
 import com.artemis.utils.Bag;
+import com.artemis.utils.ImmutableBag;
 import com.artemis.utils.IntBag;
 
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.artemis.Aspect.all;
 import static com.artemis.utils.ConverterUtil.toIntBag;
 
 /**
@@ -20,7 +22,7 @@ import static com.artemis.utils.ConverterUtil.toIntBag;
  * @see EntitySubscription
  */
 @SkipWire
-public class AspectSubscriptionManager extends Manager {
+public class AspectSubscriptionManager extends BaseSystem {
 
 	private final Map<Aspect.Builder, EntitySubscription> subscriptionMap;
 	private final Bag<EntitySubscription> subscriptions = new Bag(EntitySubscription.class);
@@ -30,6 +32,15 @@ public class AspectSubscriptionManager extends Manager {
 
 	protected AspectSubscriptionManager() {
 		subscriptionMap = new HashMap<Aspect.Builder, EntitySubscription>();
+	}
+
+	@Override
+	protected void processSystem() {}
+
+	@Override
+	protected void initialize() {
+		// making sure subscription 1 matches all entities
+		get(all());
 	}
 
 	/**
@@ -94,5 +105,15 @@ public class AspectSubscriptionManager extends Manager {
 		for (int i = 0, s = subscriptions.size(); s > i; i++) {
 			subscriptions.get(i).processComponentIdentity(id, componentBits);
 		}
+	}
+
+	/**
+	 * Gets the active list of all current entity subscriptions. Meant to assist
+	 * in tooling/debugging.
+	 *
+	 * @return All active subscriptions.
+	 */
+	public ImmutableBag<EntitySubscription> getSubscriptions() {
+		return subscriptions;
 	}
 }

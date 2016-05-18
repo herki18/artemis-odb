@@ -41,9 +41,9 @@ public class Weaver {
 		
 		List<File> classes = ClassUtil.find(targetClasses);
 		rewriteComponents(classes, log);
-//		rewriteFieldAccess(classes, packedFieldAccess(log.components), log);
+		generateLinkMutators(classes, log);
 		rewriteProfilers(classes);
-		
+
 		if (ClassMetadata.GlobalConfiguration.optimizeEntitySystems)
 			rewriteEntitySystems(classes, log);
 		
@@ -61,7 +61,7 @@ public class Weaver {
 		};
 		
 		Collections.sort(log.components, comparator);
-		Collections.sort(log.componentSystems, comparator);
+		Collections.sort(log.componentsEntityLinks, comparator);
 		Collections.sort(log.systems, comparator);
 	}
 
@@ -99,63 +99,34 @@ public class Weaver {
 		
 		List<ClassMetadata> processed = new ArrayList<ClassMetadata>();
 		for (File f : classes)
-			processClass(threadPool, f.getAbsolutePath(), processed);
+			processComponentTypes(threadPool, f.getAbsolutePath(), processed);
 		
 		awaitTermination(threadPool);
 		
 		log.components = processed;
 		log.timeComponents = timer.duration();
 	}
-	
-	
-//	// TODO: collect rewritten systems
-//	private static void rewriteFieldAccess(List<File> classes, List<ClassMetadata> packed, WeaverLog log) {
-//		if (packed.isEmpty())
-//			return;
-//
-//		Timer timer = new Timer();
-//
-//		ExecutorService threadPool = newThreadPool();
-//
-//		List<Future<ClassMetadata>> tasks = new ArrayList<Future<ClassMetadata>>();
-//		for (File file : classes) {
-//			String path = file.getAbsolutePath();
-//			ClassReader cr = classReaderFor(path);
-//			ComponentAccessTransmuter transmuter =	new ComponentAccessTransmuter(path, cr, packed);
-//
-//			tasks.add(threadPool.submit(transmuter));
-//		}
-//
-//		try {
-//
-//			List<ClassMetadata> processed = new ArrayList<ClassMetadata>();
-//			for (Future<ClassMetadata> result : tasks) {
-//				ClassMetadata metadata = result.get();
-//				if (metadata != null)
-//					processed.add(metadata);
-//			}
-//
-//			awaitTermination(threadPool);
-//			log.timeComponentSystems = timer.duration();
-//			log.componentSystems = processed;
-//		} catch (InterruptedException e) {
-//			e.printStackTrace();
-//		} catch (ExecutionException e) {
-//			e.printStackTrace();
-//		}
-//	}
-	
-	public static void retainFieldsWhenPacking(boolean ideFriendlyPacking) {
-		ClassMetadata.GlobalConfiguration.ideFriendlyPacking = ideFriendlyPacking;
+
+	private static void generateLinkMutators(List<File> classes, WeaverLog log) {
+		Timer timer = new Timer();
+		ExecutorService threadPool = newThreadPool();
+
+		List<ClassMetadata> processed = new ArrayList<ClassMetadata>();
+		for (File f : classes)
+			processEntityLinkMutators(threadPool, f.getAbsolutePath(), processed);
+
+		awaitTermination(threadPool);
+
+		log.componentsEntityLinks = processed;
+		log.timeComponentsEntityLinks = timer.duration();
+	}
+
+	public static void generateLinkMutators(boolean generateLinkMutators) {
+		ClassMetadata.GlobalConfiguration.generateLinkMutators = generateLinkMutators;
 	}
 
 	public static void enablePooledWeaving(boolean enablePooledWeaving) {
 		ClassMetadata.GlobalConfiguration.enabledPooledWeaving = enablePooledWeaving;
-	}
-
-	@Deprecated
-	public static void enablePackedWeaving(boolean enablePackedWeaving) {
-
 	}
 
 	public static void optimizeEntitySystems(boolean enabled) {
@@ -166,22 +137,34 @@ public class Weaver {
 		return Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 	}
 
-	private static void processClass(ExecutorService threadPool, String file, List<ClassMetadata> processed) {
-		
+	private static void processComponentTypes(ExecutorService threadPool, String file, List<ClassMetadata> processed) {
 		ClassReader cr = classReaderFor(file);
 		ClassMetadata meta = scan(cr);
-		
+
 		if (meta.annotation == WeaverType.NONE)
 			return;
-		
+
 		if (meta.annotation == WeaverType.POOLED && !GlobalConfiguration.enabledPooledWeaving) {
 			if (!meta.forcePooledWeaving) return;
 		}
 
-		meta.weaverTask = threadPool.submit(new ComponentTypeTransmuter(file, cr, meta));
+		threadPool.submit(new ComponentTypeTransmuter(file, cr, meta));
 		processed.add(meta);
 	}
-	
+
+	private static void processEntityLinkMutators(ExecutorService threadPool, String file, List<ClassMetadata> processed) {
+		ClassReader cr = classReaderFor(file);
+		ClassMetadata meta = scan(classReaderFor(file));
+
+		boolean likelyComponent = meta.superClass.equals("com/artemis/Component")
+			|| meta.superClass.equals("com/artemis/PooledComponent");
+
+		if (likelyComponent && meta.foundEntityLinks()) {
+			threadPool.submit(new EntityLinkGenerator(file, cr, meta));
+			processed.add(meta);
+		}
+	}
+
 	private static void optimizeEntitySystem(ExecutorService threadPool, String file) {
 		ClassReader cr = classReaderFor(file);
 		ClassMetadata meta = scan(cr);
@@ -228,6 +211,20 @@ public class Weaver {
 		source.accept(new MetaScanner(info), 0);
 
 		return info;
+	}
+
+	public static ClassMetadata scan(Class<?> klazz) {
+		return scan(toClassReader(klazz));
+	}
+
+	public static ClassReader toClassReader(Class<?> klazz) {
+		try {
+			String resourceName = "/" + klazz.getName().replace('.', '/') + ".class";
+			InputStream classStream = klazz.getResourceAsStream(resourceName);
+			return new ClassReader(classStream);
+		} catch (IOException e) {
+			throw new WeaverException("Failed to create reader for " + klazz, e);
+		}
 	}
 	
 	private static void awaitTermination(ExecutorService threadPool) {

@@ -14,4 +14,17 @@ public class MethodDescriptor {
 		this.signature = signature;
 		this.exceptions = exceptions;
 	}
+
+	public MethodDescriptor(String name, String desc) {
+		this(0, name, desc, null, null);
+	}
+
+	@Override
+	public String toString() {
+		return "MethodDescriptor[" +
+			", name='" + name + '\'' +
+			", desc='" + desc + '\'' +
+			", signature='" + signature + '\'' +
+			']';
+	}
 }
